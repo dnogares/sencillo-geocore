@@ -10,7 +10,8 @@ export type LogEntry = {
 export type OutputFile = {
     name: string;
     type: 'gml' | 'xlsx' | 'json' | 'zip';
-    size: string
+    size: string;
+    downloadUrl?: string; // URL real del backend
 };
 
 export type Project = {

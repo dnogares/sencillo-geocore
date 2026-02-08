@@ -78,16 +78,23 @@ export function Processor() {
                     if (logEntry.message.includes("EXITOSAMENTE")) {
                         eventSource.close();
 
-                        // Marcar proyecto como completado
+                        // Extraer URL de descarga si existe en el mensaje
+                        let downloadUrl = '';
+                        if (logEntry.message.includes("URL:")) {
+                            downloadUrl = logEntry.message.split("URL:")[1];
+                        }
+
+                        // Marcar proyecto como completado con el link real
                         setProjects(prev => prev.map(p =>
                             p.id === proj.id
                                 ? {
                                     ...p,
                                     status: 'completed',
                                     outputs: [{
-                                        name: p.name.replace('.txt', '_complete.zip'),
+                                        name: p.name.replace('.txt', '_resultados.zip'),
                                         type: 'zip',
-                                        size: '2.4 MB'
+                                        size: 'Procesado',
+                                        downloadUrl: downloadUrl // Añadimos la URL real
                                     }]
                                 }
                                 : p

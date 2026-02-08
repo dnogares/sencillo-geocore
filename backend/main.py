@@ -1,16 +1,22 @@
 import asyncio
 import json
 import uuid
+import shutil
+import os
 from datetime import datetime
 from typing import List
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-import os
 from logic.completo import run_cadastral_processing
 
 app = FastAPI(title="GEOCORE API")
+
+# Directorios de trabajo
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUTS_ROOT = os.path.join(BASE_DIR, "outputs")
+os.makedirs(OUTPUTS_ROOT, exist_ok=True)
 
 # Configurar CORS para el frontend de React
 app.add_middleware(
@@ -29,6 +35,8 @@ def get_timestamp():
 
 async def process_cadastral_task(task_id: str, project_name: str, references: List[str]):
     task_logs[task_id] = []
+    task_dir = os.path.join(OUTPUTS_ROOT, task_id)
+    os.makedirs(task_dir, exist_ok=True)
     
     async def log_callback(message, log_type="info"):
         log_entry = {
@@ -42,14 +50,19 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
     await log_callback(f"Iniciando procesamiento de {len(references)} referencias.", "info")
     
     for ref in references:
-        success = await run_cadastral_processing(ref, log_callback)
+        success = await run_cadastral_processing(ref, log_callback, task_dir)
         if not success:
             await log_callback(f"Fallo en la referencia {ref}.", "error")
 
     await log_callback("Empaquetando resultados en ZIP...", "info")
-    await asyncio.sleep(1.5)
     
-    await log_callback("PROCESO COMPLETADO EXITOSAMENTE.", "success")
+    # Crear el archivo ZIP
+    zip_name = f"resultados_{task_id}"
+    zip_path = os.path.join(OUTPUTS_ROOT, zip_name)
+    shutil.make_archive(zip_path, 'zip', task_dir)
+    
+    download_url = f"/api/download/{task_id}"
+    await log_callback(f"PROCESO COMPLETADO EXITOSAMENTE. URL:{download_url}", "success")
 
 @app.post("/api/upload")
 async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
@@ -74,12 +87,24 @@ async def stream_logs(task_id: str):
                         yield f"data: {json.dumps(logs[i])}\n\n"
                     sent_count = len(logs)
                     
-                    if logs[-1]["message"].endswith("EXITOSAMENTE."):
+                    if logs[-1]["message"].endswith("EXITOSAMENTE.") or "URL:" in logs[-1]["message"]:
                         break
             
             await asyncio.sleep(0.5)
             
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.get("/api/download/{task_id}")
+async def download_results(task_id: str):
+    zip_path = os.path.join(OUTPUTS_ROOT, f"resultados_{task_id}.zip")
+    if not os.path.exists(zip_path):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    
+    return FileResponse(
+        zip_path, 
+        media_type="application/zip", 
+        filename=f"resultados_{task_id}.zip"
+    )
 
 # Servir archivos estáticos del frontend
 if os.path.exists("static"):

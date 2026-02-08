@@ -39,7 +39,7 @@ export function ResultsView({ projects, onReset }: ResultsViewProps) {
                                 <div key={idx} className="bg-slate-950 hover:bg-slate-800 transition-colors border border-slate-800 p-4 rounded-lg flex items-center justify-between group col-span-1 md:col-span-2 lg:col-span-1">
                                     <div className="flex items-center gap-4">
                                         <div className={`p-2.5 rounded-lg ${file.type === 'zip' ? 'bg-yellow-500/10 text-yellow-400' :
-                                                'bg-blue-500/10 text-blue-400'
+                                            'bg-blue-500/10 text-blue-400'
                                             }`}>
                                             {file.type === 'zip' ? <FileArchive size={24} /> : <FileCode size={24} />}
                                         </div>
@@ -54,7 +54,16 @@ export function ResultsView({ projects, onReset }: ResultsViewProps) {
                                             )}
                                         </div>
                                     </div>
-                                    <button className="p-2 hover:bg-blue-600 hover:text-white rounded-md text-slate-400 transition-colors bg-slate-900 border border-slate-800 group-hover:border-blue-500/50">
+                                    <button
+                                        onClick={() => {
+                                            if (file.downloadUrl) {
+                                                window.open(file.downloadUrl, '_blank');
+                                            } else {
+                                                alert('El enlace de descarga no está disponible.');
+                                            }
+                                        }}
+                                        className="p-2 hover:bg-blue-600 hover:text-white rounded-md text-slate-400 transition-colors bg-slate-900 border border-slate-800 group-hover:border-blue-500/50"
+                                    >
                                         <Download size={18} />
                                     </button>
                                 </div>
