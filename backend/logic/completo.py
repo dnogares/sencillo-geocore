@@ -1699,18 +1699,41 @@ class OrquestadorPipeline:
 
     def _descargar_cmup_wfs(self) -> Optional[gpd.GeoDataFrame]:
         """
-        Descarga los polígonos del Catálogo de Montes de Utilidad Pública vía WFS.
+        Descarga los polígonos del Catálogo de Montes de Utilidad Pública.
+        
+        Estrategia:
+        1. Intenta leer desde FUENTES/CAPAS_gpkg (más confiable)
+        2. Si falla, intenta WFS (menos confiable)
         
         Returns:
             GeoDataFrame con los polígonos CMUP o None si hay error
         """
+        # ESTRATEGIA 1: Leer desde GPKG local (más confiable)
+        gpkg_cmup_pb = self.fuentes / "CAPAS_gpkg" / "afecciones" / "IEPF_CMUP_pb.gpkg"
+        gpkg_cmup_c = self.fuentes / "CAPAS_gpkg" / "afecciones" / "IEPF_CMUP_c.gpkg"
+        
+        try:
+            if gpkg_cmup_pb.exists():
+                print(f"Leyendo CMUP desde {gpkg_cmup_pb.name}...", end=" ", flush=True)
+                gdf = gpd.read_file(str(gpkg_cmup_pb))
+                print(f"{len(gdf)} polígonos cargados...", end=" ", flush=True)
+                return gdf
+            elif gpkg_cmup_c.exists():
+                print(f"Leyendo CMUP desde {gpkg_cmup_c.name}...", end=" ", flush=True)
+                gdf = gpd.read_file(str(gpkg_cmup_c))
+                print(f"{len(gdf)} polígonos cargados...", end=" ", flush=True)
+                return gdf
+        except Exception as e:
+            print(f"Error leyendo GPKG local: {e}", end=" ")
+        
+        # ESTRATEGIA 2: Intentar WFS (menos confiable, frecuentemente falla)
         url_wfs = "https://wms.mapama.gob.es/sig/Biodiversidad/IEPF_CMUP"
         capa_wfs = "IEPF_CMUP:CMUP_Poligono"
         
         try:
             url = (
                 f"{url_wfs}?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&"
-                f"TYPENAME={capa_wfs}&SRSNAME=EPSG:4326"
+                f"TYPENAME={capa_wfs}&SRSNAME=EPSG:4326&outputFormat=application/json"
             )
             
             print("Descargando CMUP vía WFS...", end=" ", flush=True)
@@ -1718,19 +1741,17 @@ class OrquestadorPipeline:
             response = self.session.get(url, timeout=60)
             response.raise_for_status()
             
-            # Guardar GML temporal
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".gml")
-            tmp.write(response.content)
-            tmp.close()
+            # Intentar parsear como GeoJSON
+            import json
+            geojson_data = json.loads(response.text)
             
-            # Leer con GeoPandas
-            gdf = gpd.read_file(tmp.name, driver="GML")
-            
-            # Limpiar archivo temporal
-            Path(tmp.name).unlink()
-            
-            print(f"{len(gdf)} polígonos descargados...", end=" ", flush=True)
-            return gdf
+            if 'features' in geojson_data and len(geojson_data['features']) > 0:
+                gdf = gpd.GeoDataFrame.from_features(geojson_data['features'], crs="EPSG:4326")
+                print(f"{len(gdf)} polígonos descargados...", end=" ", flush=True)
+                return gdf
+            else:
+                print("WFS devolvió 0 features...", end=" ")
+                return None
             
         except Exception as e:
             print(f"Error WFS: {e}", end=" ")
