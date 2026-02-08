@@ -77,13 +77,15 @@ export function Processor() {
                     const logEntry = JSON.parse(event.data);
                     setLogs(prev => [...prev, logEntry]);
 
-                    if (logEntry.message.includes("EXITOSAMENTE")) {
+                    // Detectar finalización: buscar "COMPLETADO" y "URL:" en el mensaje
+                    const msg = logEntry.message.toUpperCase();
+                    if (msg.includes("COMPLETADO") && msg.includes("URL:")) {
                         eventSource.close();
 
                         // Extraer URL de descarga si existe en el mensaje
                         let downloadUrl = '';
                         if (logEntry.message.includes("URL:")) {
-                            downloadUrl = logEntry.message.split("URL:")[1];
+                            downloadUrl = logEntry.message.split("URL:")[1].trim();
                         }
 
                         // Marcar proyecto como completado con el link real
