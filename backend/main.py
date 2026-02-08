@@ -16,10 +16,28 @@ app = FastAPI(title="GEOCORE API")
 # Directorios de trabajo
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUTS_ROOT = os.path.join(BASE_DIR, "outputs")
-FUENTES_DIR = os.path.join(BASE_DIR, "FUENTES") # Ruta montada vía volumen
+
+# Detectar entorno y configurar ruta de FUENTES
+# En Easypanel (producción): /app/FUENTES (montado como volumen)
+# En local (desarrollo): z:/sencillo/backend/FUENTES o relativo a BASE_DIR
+if os.path.exists("/app/FUENTES"):
+    # Entorno de producción (Easypanel)
+    FUENTES_DIR = "/app/FUENTES"
+    print("🚀 Entorno de producción detectado: usando /app/FUENTES")
+elif os.path.exists("z:/sencillo/backend/FUENTES"):
+    # Entorno de desarrollo local (Windows, unidad Z:)
+    FUENTES_DIR = "z:/sencillo/backend/FUENTES"
+    print("💻 Entorno de desarrollo detectado: usando z:/sencillo/backend/FUENTES")
+else:
+    # Fallback: usar ruta relativa al directorio del script
+    FUENTES_DIR = os.path.join(BASE_DIR, "FUENTES")
+    print(f"⚠️  Usando ruta fallback: {FUENTES_DIR}")
 
 os.makedirs(OUTPUTS_ROOT, exist_ok=True)
 # FUENTES_DIR no se crea, el volumen debe existir y estar montado
+print(f"📁 FUENTES_DIR: {FUENTES_DIR}")
+print(f"📂 OUTPUTS_ROOT: {OUTPUTS_ROOT}")
+
 
 # Configurar CORS para el frontend de React
 app.add_middleware(

@@ -16,5 +16,6 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./backend/FUENTES:/app/FUENTES:ro # Montar FUENTES como solo lectura
     environment:
       - PYTHONUNBUFFERED=1
