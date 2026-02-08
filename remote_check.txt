@@ -1,0 +1,2 @@
+﻿origin	https://github.com/dnogares/sencillo-geocore.git (fetch)
+origin	https://github.com/dnogares/sencillo-geocore.git (push)
