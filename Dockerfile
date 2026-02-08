@@ -7,8 +7,8 @@ WORKDIR /app
 # Copiamos los archivos de configuración primero para aprovechar la caché de Docker
 COPY package*.json ./
 
-# Instalamos las dependencias de producción y el servidor estático
-RUN npm install && npm install -g serve
+# Instalamos las dependencias con el flag para ignorar conflictos de versiones de peer dependencies
+RUN npm install --legacy-peer-deps && npm install -g serve
 
 # Copiamos el resto del código fuente
 COPY . .
