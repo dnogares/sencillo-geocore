@@ -3,9 +3,11 @@ import json
 import uuid
 from datetime import datetime
 from typing import List
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+import os
 from logic.completo import run_cadastral_processing
 
 app = FastAPI(title="GEOCORE API")
@@ -49,7 +51,7 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
     
     await log_callback("PROCESO COMPLETADO EXITOSAMENTE.", "success")
 
-@app.post("/upload")
+@app.post("/api/upload")
 async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     content = await file.read()
     references = content.decode("utf-8").splitlines()
@@ -60,7 +62,7 @@ async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = F
     
     return {"task_id": task_id, "project_name": file.filename, "ref_count": len(references)}
 
-@app.get("/stream/{task_id}")
+@app.get("/api/stream/{task_id}")
 async def stream_logs(task_id: str):
     async def event_generator():
         sent_count = 0
@@ -78,6 +80,21 @@ async def stream_logs(task_id: str):
             await asyncio.sleep(0.5)
             
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+# Servir archivos estáticos del frontend
+if os.path.exists("static"):
+    app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
+
+    @app.get("/")
+    async def serve_index():
+        return FileResponse("static/index.html")
+
+    @app.get("/{rest_of_path:path}")
+    async def serve_frontend(rest_of_path: str):
+        # Si no es una ruta de API, intentamos servir el index para el routing de React
+        if not rest_of_path.startswith("api/"):
+            return FileResponse("static/index.html")
+        raise HTTPException(status_code=404)
 
 if __name__ == "__main__":
     import uvicorn
