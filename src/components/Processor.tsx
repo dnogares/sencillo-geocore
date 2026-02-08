@@ -70,16 +70,19 @@ export function Processor() {
                 const data = await response.json();
                 const taskId = data.task_id;
 
+                console.log('[POLLING] Iniciando polling para task:', taskId);
+
                 // 2. Polling de logs cada 2 segundos (más confiable que SSE)
                 const pollInterval = setInterval(async () => {
                     try {
                         const logsResponse = await fetch(`${API_BASE_URL}/logs/${taskId}`);
                         if (!logsResponse.ok) {
-                            console.error('Error al obtener logs');
+                            console.error('[POLLING] Error al obtener logs, status:', logsResponse.status);
                             return;
                         }
 
                         const logsData = await logsResponse.json();
+                        console.log('[POLLING] Logs recibidos:', logsData.logs?.length || 0, 'completed:', logsData.completed);
 
                         // Actualizar logs (reemplazar todos para simplicidad)
                         if (logsData.logs && logsData.logs.length > 0) {
@@ -88,6 +91,7 @@ export function Processor() {
 
                         // Verificar si completó
                         if (logsData.completed) {
+                            console.log('[POLLING] Proceso completado, deteniendo polling');
                             clearInterval(pollInterval);
 
                             // Extraer URL de descarga
@@ -96,6 +100,7 @@ export function Processor() {
                             if (lastLog && lastLog.message.includes("URL:")) {
                                 downloadUrl = lastLog.message.split("URL:")[1].trim();
                             }
+                            console.log('[POLLING] URL de descarga:', downloadUrl);
 
                             // Marcar proyecto como completado
                             setProjects(prev => prev.map(p =>
@@ -114,7 +119,7 @@ export function Processor() {
                             ));
                         }
                     } catch (error) {
-                        console.error('Error en polling:', error);
+                        console.error('[POLLING] Error en polling:', error);
                     }
                 }, 2000); // Polling cada 2 segundos
 
