@@ -70,46 +70,53 @@ export function Processor() {
                 const data = await response.json();
                 const taskId = data.task_id;
 
-                // 2. Escuchar logs en tiempo real vía SSE
-                const eventSource = new EventSource(`${API_BASE_URL}/stream/${taskId}`);
-
-                eventSource.onmessage = (event) => {
-                    const logEntry = JSON.parse(event.data);
-                    setLogs(prev => [...prev, logEntry]);
-
-                    // Detectar finalización: buscar "COMPLETADO" y "URL:" en el mensaje
-                    const msg = logEntry.message.toUpperCase();
-                    if (msg.includes("COMPLETADO") && msg.includes("URL:")) {
-                        eventSource.close();
-
-                        // Extraer URL de descarga si existe en el mensaje
-                        let downloadUrl = '';
-                        if (logEntry.message.includes("URL:")) {
-                            downloadUrl = logEntry.message.split("URL:")[1].trim();
+                // 2. Polling de logs cada 2 segundos (más confiable que SSE)
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const logsResponse = await fetch(`${API_BASE_URL}/logs/${taskId}`);
+                        if (!logsResponse.ok) {
+                            console.error('Error al obtener logs');
+                            return;
                         }
 
-                        // Marcar proyecto como completado con el link real
-                        setProjects(prev => prev.map(p =>
-                            p.id === proj.id
-                                ? {
-                                    ...p,
-                                    status: 'completed',
-                                    outputs: [{
-                                        name: p.name.replace('.txt', '_resultados.zip'),
-                                        type: 'zip',
-                                        size: 'Procesado',
-                                        downloadUrl: downloadUrl // Añadimos la URL real
-                                    }]
-                                }
-                                : p
-                        ));
-                    }
-                };
+                        const logsData = await logsResponse.json();
 
-                eventSource.onerror = () => {
-                    console.error("Error en el stream de logs");
-                    eventSource.close();
-                };
+                        // Actualizar logs (reemplazar todos para simplicidad)
+                        if (logsData.logs && logsData.logs.length > 0) {
+                            setLogs(logsData.logs);
+                        }
+
+                        // Verificar si completó
+                        if (logsData.completed) {
+                            clearInterval(pollInterval);
+
+                            // Extraer URL de descarga
+                            const lastLog = logsData.logs[logsData.logs.length - 1];
+                            let downloadUrl = '';
+                            if (lastLog && lastLog.message.includes("URL:")) {
+                                downloadUrl = lastLog.message.split("URL:")[1].trim();
+                            }
+
+                            // Marcar proyecto como completado
+                            setProjects(prev => prev.map(p =>
+                                p.id === proj.id
+                                    ? {
+                                        ...p,
+                                        status: 'completed',
+                                        outputs: [{
+                                            name: p.name.replace('.txt', '_resultados.zip'),
+                                            type: 'zip',
+                                            size: 'Procesado',
+                                            downloadUrl: downloadUrl
+                                        }]
+                                    }
+                                    : p
+                            ));
+                        }
+                    } catch (error) {
+                        console.error('Error en polling:', error);
+                    }
+                }, 2000); // Polling cada 2 segundos
 
             } catch (error) {
                 console.error(error);

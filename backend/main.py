@@ -138,10 +138,39 @@ async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = F
     
     return {"task_id": task_id, "project_name": file.filename, "ref_count": len(references)}
 
+@app.get("/api/logs/{task_id}")
+async def get_logs(task_id: str):
+    """
+    Endpoint de polling para obtener logs (reemplaza SSE problemático).
+    """
+    if task_id not in task_logs:
+        return JSONResponse(content={
+            "logs": [],
+            "completed": False,
+            "message": "Task no encontrado o aún no iniciado"
+        })
+    
+    logs = task_logs[task_id]
+    completed = False
+    
+    # Verificar si el proceso ha terminado
+    if logs:
+        last_msg = logs[-1]["message"]
+        if ("COMPLETADO" in last_msg.upper() and "URL:" in last_msg) or \
+           ("PROCESO COMPLETADO" in last_msg.upper()):
+            completed = True
+    
+    return JSONResponse(content={
+        "logs": logs,
+        "completed": completed
+    })
+
+# Mantener endpoint SSE legacy por compatibilidad
 @app.get("/api/stream/{task_id}")
 async def stream_logs(task_id: str):
     """
     Endpoint de Server-Sent Events para streaming de logs en tiempo real.
+    DEPRECADO: Usar /api/logs/{task_id} con polling en su lugar.
     """
     print(f"[STREAM] Cliente conectado para task: {task_id}")
     
