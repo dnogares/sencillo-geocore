@@ -1,7 +1,8 @@
-import React from 'react';
-import { CheckCircle, FolderOpen, Download, FileArchive, FileCode, FolderTree, Layers } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle, FolderOpen, Download, FileArchive, FileCode, FolderTree, Layers, MessageCircle } from 'lucide-react';
 import { Project } from '../types';
 import { UI } from '../styles/ui';
+import { ChatGIS } from './ChatGIS';
 
 interface ResultsViewProps {
     projects: Project[];
@@ -9,6 +10,17 @@ interface ResultsViewProps {
 }
 
 export function ResultsView({ projects, onReset }: ResultsViewProps) {
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [selectedTaskId, setSelectedTaskId] = useState<string>('');
+
+    const openChat = (project: Project) => {
+        // Extraer task_id de la downloadUrl (formato: /api/download/{task_id})
+        const downloadUrl = project.outputs[0]?.downloadUrl || '';
+        const taskId = downloadUrl.split('/').pop() || '';
+        setSelectedTaskId(taskId);
+        setIsChatOpen(true);
+    };
+
     return (
         <div className="space-y-6 animate-in zoom-in-95 duration-500">
             <div className="flex items-center gap-4 mb-8">
@@ -32,6 +44,15 @@ export function ResultsView({ projects, onReset }: ResultsViewProps) {
                                     {project.references.length} refs
                                 </span>
                             </div>
+
+                            {/* Botón de Chat */}
+                            <button
+                                onClick={() => openChat(project)}
+                                className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg hover:shadow-xl"
+                            >
+                                <MessageCircle size={18} />
+                                Chat GIS
+                            </button>
                         </div>
 
                         <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -82,6 +103,15 @@ export function ResultsView({ projects, onReset }: ResultsViewProps) {
                     Ver en Mapa (Demo)
                 </button>
             </div>
+
+            {/* Chat Modal */}
+            {isChatOpen && (
+                <ChatGIS
+                    taskId={selectedTaskId}
+                    isOpen={isChatOpen}
+                    onClose={() => setIsChatOpen(false)}
+                />
+            )}
         </div>
     );
 }
