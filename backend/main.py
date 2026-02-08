@@ -58,6 +58,14 @@ def get_timestamp():
     return datetime.now().strftime("%H:%M:%S")
 
 async def process_cadastral_task(task_id: str, project_name: str, references: List[str]):
+    """
+    Procesa un conjunto de referencias catastrales de forma asíncrona.
+    """
+    print(f"\n{'='*80}")
+    print(f"[TASK {task_id}] Iniciando procesamiento de {project_name}")
+    print(f"[TASK {task_id}] Referencias: {len(references)}")
+    print(f"{'='*80}\n")
+    
     task_logs[task_id] = []
     task_dir = os.path.join(OUTPUTS_ROOT, task_id)
     os.makedirs(task_dir, exist_ok=True)
@@ -70,20 +78,30 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
             "type": log_type
         }
         task_logs[task_id].append(log_entry)
+        # También imprimir en stdout para los logs de Easypanel
+        print(f"[{log_type.upper()}] {message}")
 
     await log_callback(f"Iniciando procesamiento de {len(references)} referencias.", "info")
     
     for ref in references:
+        print(f"[TASK {task_id}] Procesando referencia: {ref}")
         # Ahora pasamos el directorio de fuentes para que la lógica lo use
-        success = await run_cadastral_processing(ref, log_callback, task_dir, FUENTES_DIR)
-        if not success:
-            await log_callback(f"Fallo en la referencia {ref}.", "error")
+        try:
+            success = await run_cadastral_processing(ref, log_callback, task_dir, FUENTES_DIR)
+            if not success:
+                await log_callback(f"Fallo en la referencia {ref}.", "error")
+        except Exception as e:
+            await log_callback(f"Error procesando {ref}: {str(e)}", "error")
+            print(f"[ERROR] Excepción en {ref}: {e}")
+            import traceback
+            traceback.print_exc()
 
     await log_callback("Empaquetando resultados en ZIP...", "info")
     
     # Verificar si hay archivos para comprimir
     files_in_dir = os.listdir(task_dir)
     await log_callback(f"Archivos encontrados para comprimir: {len(files_in_dir)}", "info")
+    print(f"[TASK {task_id}] Archivos en {task_dir}: {files_in_dir[:10]}")  # Mostrar primeros 10
     
     # Crear el archivo ZIP
     zip_base_name = os.path.join(OUTPUTS_ROOT, f"resultados_{task_id}")
@@ -93,11 +111,14 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
     if os.path.exists(zip_full_path):
         size_kb = os.path.getsize(zip_full_path) / 1024
         await log_callback(f"ZIP creado exitosamente ({size_kb:.1f} KB).", "success")
+        print(f"[TASK {task_id}] ZIP creado: {zip_full_path} ({size_kb:.1f} KB)")
     else:
         await log_callback("ERROR: No se pudo crear el archivo ZIP.", "error")
+        print(f"[ERROR TASK {task_id}] No se pudo crear el ZIP")
     
     download_url = f"/api/download/{task_id}"
     await log_callback(f"PROCESO COMPLETADO EXITOSAMENTE. URL:{download_url}", "success")
+    print(f"[TASK {task_id}] PROCESO FINALIZADO\n")
 
 @app.post("/api/upload")
 async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
@@ -112,20 +133,38 @@ async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = F
 
 @app.get("/api/stream/{task_id}")
 async def stream_logs(task_id: str):
+    """
+    Endpoint de Server-Sent Events para streaming de logs en tiempo real.
+    """
     async def event_generator():
         sent_count = 0
-        while True:
+        iterations = 0
+        max_iterations = 600  # 5 minutos máximo (600 * 0.5s)
+        
+        while iterations < max_iterations:
+            iterations += 1
+            
             if task_id in task_logs:
                 logs = task_logs[task_id]
                 if len(logs) > sent_count:
+                    # Enviar nuevos logs
                     for i in range(sent_count, len(logs)):
                         yield f"data: {json.dumps(logs[i])}\n\n"
                     sent_count = len(logs)
                     
-                    if logs[-1]["message"].endswith("EXITOSAMENTE.") or "URL:" in logs[-1]["message"]:
-                        break
+                    # Detectar finalización (buscar "COMPLETADO" o "URL:" en el último mensaje)
+                    if logs:
+                        last_msg = logs[-1]["message"]
+                        if ("COMPLETADO" in last_msg.upper() and "URL:" in last_msg) or \
+                           ("PROCESO COMPLETADO" in last_msg.upper()):
+                            print(f"[STREAM] Proceso {task_id} finalizado detectado")
+                            break
             
             await asyncio.sleep(0.5)
+        
+        # Log final si se alcanzó el timeout
+        if iterations >= max_iterations:
+            print(f"[STREAM] Timeout alcanzado para task {task_id}")
             
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
