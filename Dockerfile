@@ -1,25 +1,17 @@
-# Usamos una imagen ligera de Node.js
-FROM node:20-slim
-
-# Directorio de trabajo
+# Etapa 1: Construcción
+FROM node:20-slim as build
 WORKDIR /app
-
-# Copiamos los archivos de configuración primero para aprovechar la caché de Docker
 COPY package*.json ./
-
-# Instalamos las dependencias con el flag para ignorar conflictos de versiones de peer dependencies
-RUN npm install --legacy-peer-deps && npm install -g serve
-
-# Copiamos el resto del código fuente
+RUN npm install --legacy-peer-deps
 COPY . .
-
-# Construimos la aplicación (genera la carpeta /dist)
 RUN npm run build
 
-# Exponemos el puerto que usará Easypanel (por defecto suele ser el 3000)
-EXPOSE 3000
+# Etapa 2: Servidor de producción (Nginx)
+FROM nginx:alpine
+# Copiamos los archivos compilados
+COPY --from=build /app/dist /usr/share/nginx/html
+# Copiamos nuestra configuración de proxy
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Ejecutamos 'serve'. 
-# El flag -s permite que las rutas de React funcionen correctamente (Single Page App)
-# El flag -l 3000 indica el puerto
-CMD ["serve", "-s", "dist", "-l", "3000"]
+EXPOSE 3000
+CMD ["nginx", "-g", "daemon off;"]
