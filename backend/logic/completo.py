@@ -7,7 +7,8 @@ from io import BytesIO
 from typing import Callable
 
 # Configuración de URLs de Catastro (INSPIRE)
-WFS_PARCELAS_URL = "https://ovc.catastro.meh.es/insivict/wfs-inspire/v/cp/CadastralParcels/wfs"
+# URL corregida para el servicio WFS de Parcelas Catastrales
+WFS_PARCELAS_URL = "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx"
 
 async def check_intersections_gpkg(parcel_gdf, fuentes_dir, log_callback):
     """
@@ -95,6 +96,7 @@ async def run_cadastral_processing(reference: str, log_callback: Callable, outpu
         
         # Parámetros para la consulta WFS (GET)
         # Filtro por referencia catastral (nationalCadastralReference)
+        # IMPORTANTE: Añadimos namespaces necesarios para 'fes' y 'cp'
         params = {
             "service": "WFS",
             "version": "2.0.0",
@@ -109,15 +111,22 @@ async def run_cadastral_processing(reference: str, log_callback: Callable, outpu
             </fes:Filter>"""
         }
 
+        # Headers para evitar bloqueos por User-Agent
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+
         # Ejecutamos la petición de forma asíncrona para no bloquear el backend
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None, 
-            lambda: requests.get(WFS_PARCELAS_URL, params=params, timeout=30)
+            lambda: requests.get(WFS_PARCELAS_URL, params=params, headers=headers, timeout=60)
         )
 
         if response.status_code != 200:
             await log_callback(f"Error HTTP {response.status_code} al contactar con Catastro.", "error")
+            # Log de la respuesta si es error para debug
+            # await log_callback(f"Respuesta Catastro: {response.text[:200]}", "error")
             return False
 
         if "Exception" in response.text:
