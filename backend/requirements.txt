@@ -8,3 +8,8 @@ owslib
 shapely
 pyproj
 rtree
+matplotlib
+pandas
+contextily
+Pillow
+openpyxl
