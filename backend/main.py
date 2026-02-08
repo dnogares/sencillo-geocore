@@ -127,6 +127,13 @@ async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = F
     references = [r.strip() for r in references if r.strip()]
     
     task_id = str(uuid.uuid4())
+    
+    print(f"\n{'='*80}")
+    print(f"[UPLOAD] Nuevo proyecto subido: {file.filename}")
+    print(f"[UPLOAD] Task ID: {task_id}")
+    print(f"[UPLOAD] Referencias: {len(references)}")
+    print(f"{'='*80}\n")
+    
     background_tasks.add_task(process_cadastral_task, task_id, file.filename, references)
     
     return {"task_id": task_id, "project_name": file.filename, "ref_count": len(references)}
@@ -136,6 +143,8 @@ async def stream_logs(task_id: str):
     """
     Endpoint de Server-Sent Events para streaming de logs en tiempo real.
     """
+    print(f"[STREAM] Cliente conectado para task: {task_id}")
+    
     async def event_generator():
         sent_count = 0
         iterations = 0
@@ -159,6 +168,9 @@ async def stream_logs(task_id: str):
                            ("PROCESO COMPLETADO" in last_msg.upper()):
                             print(f"[STREAM] Proceso {task_id} finalizado detectado")
                             break
+            elif iterations == 1:
+                # Primera iteración: verificar si el task existe
+                print(f"[STREAM] Task {task_id} aún no tiene logs (esperando...)")
             
             await asyncio.sleep(0.5)
         
