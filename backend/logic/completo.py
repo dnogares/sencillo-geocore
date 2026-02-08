@@ -54,6 +54,7 @@ async def run_cadastral_processing(reference: str, log_callback: Callable, outpu
             gml_file = BytesIO(response.content)
             
             # Cargar en GeoDataFrame
+            await log_callback(f"Analizando geometría con GeoPandas...", "info")
             gdf = await loop.run_in_executor(
                 None,
                 lambda: gpd.read_file(gml_file)
@@ -73,12 +74,12 @@ async def run_cadastral_processing(reference: str, log_callback: Callable, outpu
                 os.makedirs(output_dir)
                 
             output_path = f"{output_dir}/{reference}.gml"
+            await log_callback(f"Guardando archivo GML en disco...", "info")
             with open(output_path, "wb") as f:
                 f.write(response.content)
 
-            await log_callback(f"Archivo GML guardado en {output_path}", "success")
+            await log_callback(f"Archivo {reference}.gml guardado exitosamente.", "success")
             
-            # Aquí se podrían añadir más reproyecciones o análisis espaciales con gdf
             return True
 
         except Exception as e:

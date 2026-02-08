@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Play, FolderOpen, FileText, Trash2, Box } from 'lucide-react';
+import { Upload, Play, FolderOpen, FileText, Trash2, Box, CheckCircle } from 'lucide-react';
 import { AppState, Project, LogEntry } from '../types';
 import { UI } from '../styles/ui';
 import { generateId, getTimestamp } from '../utils/helpers';
@@ -10,6 +10,7 @@ export function Processor() {
     const [appState, setAppState] = useState<AppState>('input');
     const [projects, setProjects] = useState<Project[]>([]);
     const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [isProcessingDone, setIsProcessingDone] = useState(false);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFiles = e.target.files;
@@ -48,6 +49,7 @@ export function Processor() {
     const startProcessing = async () => {
         if (projects.length === 0) return;
 
+        setIsProcessingDone(false);
         setAppState('processing');
         setLogs([]);
 
@@ -121,13 +123,11 @@ export function Processor() {
             await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        // Esperar un poco antes de mostrar resultados finales si todos terminaron
-        setTimeout(() => {
-            setAppState('results');
-        }, 2000);
+        setIsProcessingDone(true);
     };
 
     const reset = () => {
+        setIsProcessingDone(false);
         setAppState('input');
         setProjects([]);
         setLogs([]);
@@ -250,6 +250,17 @@ export function Processor() {
                     <div className="flex-1 min-h-0">
                         <ProcessingTerminal logs={logs} />
                     </div>
+                    {isProcessingDone && (
+                        <div className="mt-6 flex justify-center animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <button
+                                onClick={() => setAppState('results')}
+                                className={`${UI.ButtonPrimary} px-12 py-3 text-lg shadow-xl shadow-blue-500/20`}
+                            >
+                                <CheckCircle className="mr-2" size={24} />
+                                Ver Resultados y Descargar
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
