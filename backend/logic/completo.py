@@ -8,11 +8,17 @@ from typing import Callable
 # Configuración de URLs de Catastro (INSPIRE)
 WFS_PARCELAS_URL = "https://ovc.catastro.meh.es/insivict/wfs-inspire/v/cp/CadastralParcels/wfs"
 
-async def run_cadastral_processing(reference: str, log_callback: Callable, output_dir: str = "outputs"):
+async def run_cadastral_processing(reference: str, log_callback: Callable, output_dir: str = "outputs", fuentes_dir: str = "FUENTES"):
     """
     Descarga y procesa datos catastrales reales usando el servicio WFS de INSPIRE.
     """
     try:
+        if not os.path.exists(fuentes_dir):
+            await log_callback(f"ADVERTENCIA: Directorio de fuentes no encontrado en {fuentes_dir}", "warning")
+        else:
+            await log_callback(f"Directorio de fuentes detectado correctamente.", "info")
+
+        await log_callback(f"Procesando referencia catastral: {reference}", "info")
         await log_callback(f"Solicitando datos WFS para ref: {reference}...", "info")
         
         # Parámetros para la consulta WFS (GET)
@@ -69,7 +75,6 @@ async def run_cadastral_processing(reference: str, log_callback: Callable, outpu
             await log_callback(f"Parcela validada. Área aproximada: {area:.2f} m²", "info")
 
             # Simulación de guardado de archivos (GML local)
-            # En un entorno real guardaríamos esto en un volumen montado o S3
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
                 

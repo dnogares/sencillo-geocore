@@ -16,7 +16,10 @@ app = FastAPI(title="GEOCORE API")
 # Directorios de trabajo
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUTS_ROOT = os.path.join(BASE_DIR, "outputs")
+FUENTES_DIR = os.path.join(BASE_DIR, "FUENTES") # Ruta montada vía volumen
+
 os.makedirs(OUTPUTS_ROOT, exist_ok=True)
+# FUENTES_DIR no se crea, el volumen debe existir y estar montado
 
 # Configurar CORS para el frontend de React
 app.add_middleware(
@@ -50,16 +53,27 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
     await log_callback(f"Iniciando procesamiento de {len(references)} referencias.", "info")
     
     for ref in references:
-        success = await run_cadastral_processing(ref, log_callback, task_dir)
+        # Ahora pasamos el directorio de fuentes para que la lógica lo use
+        success = await run_cadastral_processing(ref, log_callback, task_dir, FUENTES_DIR)
         if not success:
             await log_callback(f"Fallo en la referencia {ref}.", "error")
 
     await log_callback("Empaquetando resultados en ZIP...", "info")
     
+    # Verificar si hay archivos para comprimir
+    files_in_dir = os.listdir(task_dir)
+    await log_callback(f"Archivos encontrados para comprimir: {len(files_in_dir)}", "info")
+    
     # Crear el archivo ZIP
-    zip_name = f"resultados_{task_id}"
-    zip_path = os.path.join(OUTPUTS_ROOT, zip_name)
-    shutil.make_archive(zip_path, 'zip', task_dir)
+    zip_base_name = os.path.join(OUTPUTS_ROOT, f"resultados_{task_id}")
+    shutil.make_archive(zip_base_name, 'zip', task_dir)
+    
+    zip_full_path = f"{zip_base_name}.zip"
+    if os.path.exists(zip_full_path):
+        size_kb = os.path.getsize(zip_full_path) / 1024
+        await log_callback(f"ZIP creado exitosamente ({size_kb:.1f} KB).", "success")
+    else:
+        await log_callback("ERROR: No se pudo crear el archivo ZIP.", "error")
     
     download_url = f"/api/download/{task_id}"
     await log_callback(f"PROCESO COMPLETADO EXITOSAMENTE. URL:{download_url}", "success")
