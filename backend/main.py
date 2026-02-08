@@ -138,6 +138,18 @@ async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = F
     
     return {"task_id": task_id, "project_name": file.filename, "ref_count": len(references)}
 
+@app.get("/api/debug/{task_id}")
+async def debug_task(task_id: str):
+    """
+    Endpoint de debugging para ver el estado de los logs.
+    """
+    return {
+        "task_exists": task_id in task_logs,
+        "log_count": len(task_logs.get(task_id, [])),
+        "all_tasks": list(task_logs.keys()),
+        "sample_logs": task_logs.get(task_id, [])[:5] if task_id in task_logs else []
+    }
+
 @app.get("/api/logs/{task_id}")
 async def get_logs(task_id: str):
     """
