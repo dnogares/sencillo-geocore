@@ -7,9 +7,12 @@ from datetime import datetime
 from typing import List
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from pathlib import Path
 from logic.completo import run_cadastral_processing
+from logic.chat_gis import create_chat_session
 
 app = FastAPI(title="GEOCORE API")
 
@@ -152,6 +155,88 @@ if os.path.exists("static"):
         if not rest_of_path.startswith("api/"):
             return FileResponse("static/index.html")
         raise HTTPException(status_code=404)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ENDPOINTS DE CHAT GIS (GEMINI)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Modelo de petición de chat
+class ChatMessage(BaseModel):
+    message: str
+
+# Almacenamiento de sesiones de chat (en memoria)
+chat_sessions = {}
+
+@app.post("/api/chat/{task_id}")
+async def chat_with_gis(task_id: str, chat_msg: ChatMessage):
+    """
+    Endpoint de chat especializado en GIS para analizar un proyecto.
+    
+    Args:
+        task_id: ID del proyecto procesado
+        chat_msg: Mensaje del usuario
+        
+    Returns:
+        JSON con la respuesta del asistente
+    """
+    try:
+        # Verificar que el proyecto existe
+        task_dir = Path(OUTPUTS_ROOT) / task_id
+        if not task_dir.exists():
+            raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        
+        # Crear o recuperar sesión de chat
+        if task_id not in chat_sessions:
+            chat_sessions[task_id] = create_chat_session(task_id, Path(OUTPUTS_ROOT))
+        
+        chat = chat_sessions[task_id]
+        
+        # Enviar mensaje y obtener respuesta
+        response = await chat.send_message(chat_msg.message)
+        
+        return JSONResponse(content={
+            "response": response,
+            "task_id": task_id
+        })
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en el chat: {str(e)}")
+
+@app.get("/api/chat/{task_id}/history")
+async def get_chat_history(task_id: str):
+    """
+    Obtiene el historial de conversación de un proyecto.
+    
+    Args:
+        task_id: ID del proyecto
+        
+    Returns:
+        JSON con el historial completo
+    """
+    if task_id not in chat_sessions:
+        return JSONResponse(content={"history": []})
+    
+    chat = chat_sessions[task_id]
+    history = chat.get_history()
+    
+    return JSONResponse(content={"history": history})
+
+@app.delete("/api/chat/{task_id}")
+async def clear_chat_session(task_id: str):
+    """
+    Limpia la sesión de chat de un proyecto.
+    
+    Args:
+        task_id: ID del proyecto
+        
+    Returns:
+        JSON confirmando la limpieza
+    """
+    if task_id in chat_sessions:
+        del chat_sessions[task_id]
+    
+    return JSONResponse(content={"message": "Sesión de chat eliminada"})
+
 
 if __name__ == "__main__":
     import uvicorn

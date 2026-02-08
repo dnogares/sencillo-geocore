@@ -13,3 +13,4 @@ pandas
 contextily
 Pillow
 openpyxl
+google-generativeai
