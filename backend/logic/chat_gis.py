@@ -8,7 +8,7 @@ from typing import List, Dict, Optional
 import google.generativeai as genai
 
 # Configuración de la API de Gemini
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBWAnAyg5mlqzIIAHBtg1_eFcbL6ruoahs")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
