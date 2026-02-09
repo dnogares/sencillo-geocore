@@ -176,7 +176,7 @@ export function Processor() {
         <div className="max-w-6xl mx-auto h-full flex flex-col">
             <div className="mb-6 flex-shrink-0">
                 <h1 className={UI.Title}>Procesador Catastral Multiproyecto</h1>
-                <p className={UI.Subtitle}>Gestión de proyectos GIS . Version 1.0 por mucho que le cueste a Jorge tener paciencia e ir poco a poco subiendo actualizaciones</p>
+                <p className={UI.Subtitle}>Gestión de proyectos GIS . Version 1.1 por mucho que le cueste a Jorge tener paciencia e ir poco a poco subiendo actualizaciones</p>
             </div>
 
             {appState === 'input' && (
