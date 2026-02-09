@@ -72,12 +72,31 @@ export function Processor() {
 
                 console.log('[POLLING] Iniciando polling para task:', taskId);
 
+                let pollCount = 0;
+                const maxPolls = 300; // 10 minutos máximo (300 * 2s)
+
                 // 2. Polling de logs cada 2 segundos (más confiable que SSE)
                 const pollInterval = setInterval(async () => {
+                    pollCount++;
+
+                    // Timeout de seguridad
+                    if (pollCount >= maxPolls) {
+                        console.log('[POLLING] Timeout alcanzado, deteniendo polling');
+                        clearInterval(pollInterval);
+                        setLogs(prev => [...prev, {
+                            id: generateId(),
+                            timestamp: getTimestamp(),
+                            message: `Tiempo de espera agotado para ${proj.name}`,
+                            type: 'warning'
+                        }]);
+                        return;
+                    }
+
                     try {
                         const logsResponse = await fetch(`${API_BASE_URL}/logs/${taskId}`);
                         if (!logsResponse.ok) {
                             console.error('[POLLING] Error al obtener logs, status:', logsResponse.status);
+                            // No detener polling por errores temporales HTTP
                             return;
                         }
 
@@ -120,6 +139,8 @@ export function Processor() {
                         }
                     } catch (error) {
                         console.error('[POLLING] Error en polling:', error);
+                        // En caso de error fatal, detener polling
+                        clearInterval(pollInterval);
                     }
                 }, 2000); // Polling cada 2 segundos
 
