@@ -105,7 +105,11 @@ export function Processor() {
 
                         // Actualizar logs (reemplazar todos para simplicidad)
                         if (logsData.logs && logsData.logs.length > 0) {
+                            console.log('[POLLING] 📋 Actualizando estado con', logsData.logs.length, 'logs');
+                            console.log('[POLLING] 📝 Primer log:', logsData.logs[0]);
                             setLogs(logsData.logs);
+                        } else {
+                            console.log('[POLLING] ⚠️ NO hay logs para mostrar');
                         }
 
                         // Verificar si completó

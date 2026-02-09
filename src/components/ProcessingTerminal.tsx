@@ -25,22 +25,31 @@ export function ProcessingTerminal({ logs }: ProcessingTerminalProps) {
                 </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1">
-                {logs.map((log) => (
-                    <div key={log.id} className="flex gap-3 animate-in fade-in slide-in-from-left-2 duration-300">
-                        <span className="text-slate-600 select-none">[{log.timestamp}]</span>
-                        <span className={`${log.type === 'error' ? 'text-red-400' :
-                                log.type === 'success' ? 'text-emerald-400' :
-                                    log.type === 'warning' ? 'text-amber-400' :
-                                        'text-blue-200'
-                            }`}>
-                            {log.type === 'info' && <span className="text-blue-500 mr-2">ℹ</span>}
-                            {log.type === 'success' && <span className="text-emerald-500 mr-2">✔</span>}
-                            {log.type === 'error' && <span className="text-red-500 mr-2">✖</span>}
-                            {log.message}
-                        </span>
+                {logs.length === 0 ? (
+                    <div className="text-slate-500 text-center py-8">
+                        <div className="mb-2">⏳ Esperando logs del servidor...</div>
+                        <div className="text-xs">Si no aparecen logs, verifica la consola del navegador (F12)</div>
                     </div>
-                ))}
-                <div ref={endRef} />
+                ) : (
+                    <>
+                        {logs.map((log) => (
+                            <div key={log.id} className="flex gap-3 animate-in fade-in slide-in-from-left-2 duration-300">
+                                <span className="text-slate-600 select-none">[{log.timestamp}]</span>
+                                <span className={`${log.type === 'error' ? 'text-red-400' :
+                                    log.type === 'success' ? 'text-emerald-400' :
+                                        log.type === 'warning' ? 'text-amber-400' :
+                                            'text-blue-200'
+                                    }`}>
+                                    {log.type === 'info' && <span className="text-blue-500 mr-2">ℹ</span>}
+                                    {log.type === 'success' && <span className="text-emerald-500 mr-2">✔</span>}
+                                    {log.type === 'error' && <span className="text-red-500 mr-2">✖</span>}
+                                    {log.message}
+                                </span>
+                            </div>
+                        ))}
+                        <div ref={endRef} />
+                    </>
+                )}
             </div>
         </div>
     );
