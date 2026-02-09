@@ -7,8 +7,8 @@ import { ProcessingTerminal } from './ProcessingTerminal';
 import { ResultsView } from './ResultsView';
 
 const MAX_LOGS = 500; // Limitar logs en memoria para evitar sobrecarga
-const POLL_INTERVAL_MS = 2000; // 2s para polling ligero de status
-const MAX_POLL_COUNT = 300; // 10 minutos (300 * 2s)
+const POLL_INTERVAL_MS = 3000; // 3s para polling de logs
+const MAX_POLL_COUNT = 200; // 10 minutos (200 * 3s)
 
 export function Processor() {
     const [appState, setAppState] = useState<AppState>('input');
@@ -102,7 +102,7 @@ export function Processor() {
                 const uploadAbortController = new AbortController();
                 abortControllersRef.current.push(uploadAbortController);
 
-                const response = await fetch(`${API_BASE_URL}/process-async`, {
+                const response = await fetch(`${API_BASE_URL}/upload`, {
                     method: 'POST',
                     body: formData,
                     signal: uploadAbortController.signal
@@ -113,7 +113,7 @@ export function Processor() {
                 const data = await response.json();
                 const taskId = data.task_id;
 
-                console.log('[PROCESSOR] ✅ Proceso iniciado, Task ID:', taskId);
+                console.log('[PROCESSOR] ✅ Archivo subido, Task ID:', taskId);
 
                 let pollCount = 0;
                 let isPollingActive = true;
@@ -150,41 +150,34 @@ export function Processor() {
                         const pollAbortController = new AbortController();
                         abortControllersRef.current.push(pollAbortController);
 
-                        const statusResponse = await fetch(`${API_BASE_URL}/status/${taskId}`, {
+                        const logsResponse = await fetch(`${API_BASE_URL}/logs/${taskId}`, {
                             signal: pollAbortController.signal
                         });
 
-                        if (!statusResponse.ok) {
-                            console.warn('[POLLING] HTTP', statusResponse.status, 'para task', taskId);
+                        if (!logsResponse.ok) {
+                            console.warn('[POLLING] HTTP', logsResponse.status, 'para task', taskId);
                             return; // Continuar polling
                         }
 
-                        const statusData = await statusResponse.json();
+                        const logsData = await logsResponse.json();
 
-                        // Feedback visual sintético (ya que no descargamos logs reales para evitar timeout)
-                        if (pollCount % 2 === 0) {
-                            setLogs(prev => [...prev, {
-                                id: generateId(),
-                                timestamp: getTimestamp(),
-                                message: `Procesando en background... Estado: ${statusData.status}`,
-                                type: 'info'
-                            }].slice(-MAX_LOGS));
+                        // Actualizar logs si hay nuevos
+                        if (logsData.logs && Array.isArray(logsData.logs) && logsData.logs.length > 0) {
+                            setLogs(prevLogs => {
+                                // Limitar logs para evitar sobrecarga de memoria
+                                const newLogs = logsData.logs.slice(-MAX_LOGS);
+                                return newLogs;
+                            });
                         }
 
                         // Verificar si completó
-                        if (statusData.status === 'completed') {
+                        if (logsData.completed) {
                             console.log('[POLLING] ✅ Proceso completado para', proj.name);
                             isPollingActive = false;
                             clearInterval(pollInterval);
 
-                            setLogs(prev => [...prev, {
-                                id: generateId(),
-                                timestamp: getTimestamp(),
-                                message: `✅ Proceso finalizado exitosamente`,
-                                type: 'success'
-                            }]);
-
-                            const downloadUrl = statusData.download_url;
+                            // Construir URL de descarga
+                            const downloadUrl = `/api/download/${taskId}`;
                             console.log('[POLLING] 🔗 URL de descarga:', downloadUrl);
 
                             // Marcar proyecto como completado
@@ -196,14 +189,12 @@ export function Processor() {
                                         outputs: [{
                                             name: p.name.replace('.txt', '_resultados.zip'),
                                             type: 'zip',
-                                            size: statusData.file_size || 'Procesado',
+                                            size: 'Procesado',
                                             downloadUrl: downloadUrl
                                         }]
                                     }
                                     : p
                             ));
-                        } else if (statusData.status === 'error') {
-                            throw new Error(statusData.error || 'Error en procesamiento');
                         }
                     } catch (error: any) {
                         if (error.name === 'AbortError') {
