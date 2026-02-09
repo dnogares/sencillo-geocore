@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Play, FolderOpen, FileText, Trash2, Box, CheckCircle } from 'lucide-react';
 import { AppState, Project, LogEntry } from '../types';
 import { UI } from '../styles/ui';
@@ -6,11 +6,43 @@ import { generateId, getTimestamp } from '../utils/helpers';
 import { ProcessingTerminal } from './ProcessingTerminal';
 import { ResultsView } from './ResultsView';
 
+const MAX_LOGS = 500; // Limitar logs en memoria para evitar sobrecarga
+const POLL_INTERVAL_MS = 3000; // Aumentado a 3s para reducir carga
+const MAX_POLL_COUNT = 200; // 10 minutos (200 * 3s)
+
 export function Processor() {
     const [appState, setAppState] = useState<AppState>('input');
     const [projects, setProjects] = useState<Project[]>([]);
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [isProcessingDone, setIsProcessingDone] = useState(false);
+
+    // useRef para tracking de intervalos y AbortControllers
+    const activeIntervalsRef = useRef<number[]>([]);
+    const abortControllersRef = useRef<AbortController[]>([]);
+
+    // Cleanup al desmontar o cambiar de estado
+    useEffect(() => {
+        return () => {
+            console.log('[CLEANUP] Limpiando recursos del componente');
+            cleanupResources();
+        };
+    }, []);
+
+    const cleanupResources = () => {
+        // Limpiar todos los intervalos activos
+        activeIntervalsRef.current.forEach(interval => {
+            clearInterval(interval);
+        });
+        activeIntervalsRef.current = [];
+
+        // Cancelar todos los fetches pendientes
+        abortControllersRef.current.forEach(controller => {
+            controller.abort();
+        });
+        abortControllersRef.current = [];
+
+        console.log('[CLEANUP] Recursos liberados');
+    };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFiles = e.target.files;
@@ -49,9 +81,14 @@ export function Processor() {
     const startProcessing = async () => {
         if (projects.length === 0) return;
 
+        // Limpiar recursos previos antes de empezar
+        cleanupResources();
+
         setIsProcessingDone(false);
         setAppState('processing');
         setLogs([]);
+
+        console.log('[PROCESSOR] Iniciando procesamiento de', projects.length, 'proyectos');
 
         for (const proj of projects) {
             try {
@@ -60,9 +97,15 @@ export function Processor() {
                 formData.append('file', proj.originalFile);
 
                 const API_BASE_URL = '/api';
+
+                // Crear AbortController para este upload
+                const uploadAbortController = new AbortController();
+                abortControllersRef.current.push(uploadAbortController);
+
                 const response = await fetch(`${API_BASE_URL}/upload`, {
                     method: 'POST',
                     body: formData,
+                    signal: uploadAbortController.signal
                 });
 
                 if (!response.ok) throw new Error('Error al subir el archivo');
@@ -70,60 +113,95 @@ export function Processor() {
                 const data = await response.json();
                 const taskId = data.task_id;
 
-                console.log('[POLLING] Iniciando polling para task:', taskId);
+                console.log('[PROCESSOR] ✅ Archivo subido, Task ID:', taskId);
 
                 let pollCount = 0;
-                const maxPolls = 300; // 10 minutos máximo (300 * 2s)
+                let isPollingActive = true;
 
-                // 2. Polling de logs cada 2 segundos (más confiable que SSE)
+                // 2. Polling optimizado de logs
                 const pollInterval = setInterval(async () => {
+                    if (!isPollingActive) {
+                        clearInterval(pollInterval);
+                        return;
+                    }
+
                     pollCount++;
 
                     // Timeout de seguridad
-                    if (pollCount >= maxPolls) {
-                        console.log('[POLLING] Timeout alcanzado, deteniendo polling');
+                    if (pollCount >= MAX_POLL_COUNT) {
+                        console.warn('[POLLING] Timeout alcanzado para', proj.name);
+                        isPollingActive = false;
                         clearInterval(pollInterval);
-                        setLogs(prev => [...prev, {
-                            id: generateId(),
-                            timestamp: getTimestamp(),
-                            message: `Tiempo de espera agotado para ${proj.name}`,
-                            type: 'warning'
-                        }]);
+
+                        setLogs(prev => {
+                            const newLogs = [...prev, {
+                                id: generateId(),
+                                timestamp: getTimestamp(),
+                                message: `⏱️ Tiempo de espera agotado para ${proj.name}`,
+                                type: 'warning' as const
+                            }];
+                            return newLogs.slice(-MAX_LOGS); // Limitar logs
+                        });
                         return;
                     }
 
                     try {
-                        const logsResponse = await fetch(`${API_BASE_URL}/logs/${taskId}`);
+                        // Crear AbortController para cada polling request
+                        const pollAbortController = new AbortController();
+                        abortControllersRef.current.push(pollAbortController);
+
+                        const logsResponse = await fetch(`${API_BASE_URL}/logs/${taskId}`, {
+                            signal: pollAbortController.signal
+                        });
+
                         if (!logsResponse.ok) {
-                            console.error('[POLLING] Error al obtener logs, status:', logsResponse.status);
-                            // No detener polling por errores temporales HTTP
-                            return;
+                            console.warn('[POLLING] HTTP', logsResponse.status, 'para task', taskId);
+                            return; // Continuar polling
                         }
 
                         const logsData = await logsResponse.json();
-                        console.log('[POLLING] Logs recibidos:', logsData.logs?.length || 0, 'completed:', logsData.completed);
 
-                        // Actualizar logs (reemplazar todos para simplicidad)
-                        if (logsData.logs && logsData.logs.length > 0) {
-                            console.log('[POLLING] 📋 Actualizando estado con', logsData.logs.length, 'logs');
-                            console.log('[POLLING] 📝 Primer log:', logsData.logs[0]);
-                            setLogs(logsData.logs);
-                        } else {
-                            console.log('[POLLING] ⚠️ NO hay logs para mostrar');
+                        // Debug: Verificar estructura de respuesta
+                        if (pollCount === 1) {
+                            console.log('[POLLING] 🔍 Estructura de respuesta:', {
+                                hasLogs: !!logsData.logs,
+                                logsCount: logsData.logs?.length || 0,
+                                completed: logsData.completed,
+                                sampleLog: logsData.logs?.[0]
+                            });
+                        }
+
+                        // Actualizar logs si hay nuevos
+                        if (logsData.logs && Array.isArray(logsData.logs) && logsData.logs.length > 0) {
+                            console.log(`[POLLING] 📋 Recibidos ${logsData.logs.length} logs para ${proj.name}`);
+
+                            setLogs(prevLogs => {
+                                // Limitar logs para evitar sobrecarga de memoria
+                                const newLogs = logsData.logs.slice(-MAX_LOGS);
+                                return newLogs;
+                            });
+                        } else if (pollCount % 5 === 0) {
+                            // Log cada 5 intentos si no hay logs
+                            console.log('[POLLING] ⏳ Esperando logs...', `(intento ${pollCount}/${MAX_POLL_COUNT})`);
                         }
 
                         // Verificar si completó
                         if (logsData.completed) {
-                            console.log('[POLLING] Proceso completado, deteniendo polling');
+                            console.log('[POLLING] ✅ Proceso completado para', proj.name);
+                            isPollingActive = false;
                             clearInterval(pollInterval);
 
                             // Extraer URL de descarga
-                            const lastLog = logsData.logs[logsData.logs.length - 1];
+                            const lastLog = logsData.logs && logsData.logs.length > 0
+                                ? logsData.logs[logsData.logs.length - 1]
+                                : null;
+
                             let downloadUrl = '';
-                            if (lastLog && lastLog.message.includes("URL:")) {
+                            if (lastLog && lastLog.message && lastLog.message.includes("URL:")) {
                                 downloadUrl = lastLog.message.split("URL:")[1].trim();
                             }
-                            console.log('[POLLING] URL de descarga:', downloadUrl);
+
+                            console.log('[POLLING] 🔗 URL de descarga:', downloadUrl);
 
                             // Marcar proyecto como completado
                             setProjects(prev => prev.map(p =>
@@ -141,31 +219,45 @@ export function Processor() {
                                     : p
                             ));
                         }
-                    } catch (error) {
-                        console.error('[POLLING] Error en polling:', error);
-                        // En caso de error fatal, detener polling
-                        clearInterval(pollInterval);
+                    } catch (error: any) {
+                        if (error.name === 'AbortError') {
+                            console.log('[POLLING] Fetch cancelado (AbortError)');
+                            isPollingActive = false;
+                            clearInterval(pollInterval);
+                        } else {
+                            console.error('[POLLING] ❌ Error:', error.message);
+                        }
                     }
-                }, 2000); // Polling cada 2 segundos
+                }, POLL_INTERVAL_MS);
 
-            } catch (error) {
-                console.error(error);
-                setLogs(prev => [...prev, {
-                    id: generateId(),
-                    timestamp: getTimestamp(),
-                    message: `Error al procesar ${proj.name}`,
-                    type: 'error'
-                }]);
+                // Guardar referencia al intervalo
+                activeIntervalsRef.current.push(pollInterval);
+
+            } catch (error: any) {
+                if (error.name === 'AbortError') {
+                    console.log('[PROCESSOR] Upload cancelado');
+                } else {
+                    console.error('[PROCESSOR] ❌ Error procesando', proj.name, ':', error);
+                    setLogs(prev => [...prev, {
+                        id: generateId(),
+                        timestamp: getTimestamp(),
+                        message: `❌ Error al procesar ${proj.name}: ${error.message}`,
+                        type: 'error'
+                    }].slice(-MAX_LOGS));
+                }
             }
 
-            // Un pequeño delay entre proyectos si hay varios
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Delay entre proyectos para reducir carga
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
         setIsProcessingDone(true);
+        console.log('[PROCESSOR] 🎉 Todos los proyectos procesados');
     };
 
     const reset = () => {
+        console.log('[PROCESSOR] Reset iniciado');
+        cleanupResources();
         setIsProcessingDone(false);
         setAppState('input');
         setProjects([]);

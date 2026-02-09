@@ -22,3 +22,28 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+.pytest_cache/
+
+# Backend outputs (archivos generados por procesamiento)
+backend/OUTPUTS/*
+!backend/OUTPUTS/.gitkeep
+backend/INPUTS/*.txt
+backend/static/
+
+# Archivos temporales
+*.tmp
+*.bak
+*.swp
+*~

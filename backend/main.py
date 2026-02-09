@@ -3,8 +3,9 @@ import json
 import uuid
 import shutil
 import os
-from datetime import datetime
-from typing import List
+import gc
+from datetime import datetime, timedelta
+from typing import List, Dict
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
@@ -52,10 +53,65 @@ app.add_middleware(
 )
 
 # Almacén temporal de logs (en producción usaríamos Redis o una DB)
-task_logs = {}
+# Optimización: limitar tamaño para evitar sobrecarga de memoria
+MAX_LOGS_PER_TASK = 500
+MAX_TASKS_IN_MEMORY = 50
+TASK_EXPIRATION_HOURS = 1
+
+task_logs: Dict[str, List[dict]] = {}
+task_metadata: Dict[str, dict] = {}  # Tracking de timestamps y limpieza
 
 def get_timestamp():
     return datetime.now().strftime("%H:%M:%S")
+
+def cleanup_old_tasks():
+    """
+    Limpia tareas antiguas de la memoria para evitar sobrecarga.
+    Elimina tareas que tienen más de TASK_EXPIRATION_HOURS horas.
+    """
+    current_time = datetime.now()
+    tasks_to_remove = []
+    
+    for task_id, metadata in task_metadata.items():
+        task_age = current_time - metadata.get("start_time", current_time)
+        
+        # Eliminar si:  1) Está completada Y tiene más de 1 hora
+        #               2) Está incompleta Y tiene más de 2 horas (proceso atascado)
+        if metadata.get("completed") and task_age > timedelta(hours=TASK_EXPIRATION_HOURS):
+            tasks_to_remove.append(task_id)
+        elif not metadata.get("completed") and task_age > timedelta(hours=TASK_EXPIRATION_HOURS * 2):
+            tasks_to_remove.append(task_id)
+    
+    # Eliminar tareas antiguas
+    for task_id in tasks_to_remove:
+        if task_id in task_logs:
+            del task_logs[task_id]
+        if task_id in task_metadata:
+            del task_metadata[task_id]
+        print(f"[CLEANUP] 🧹 Tarea {task_id} eliminada de memoria")
+    
+    if tasks_to_remove:
+        print(f"[CLEANUP] Liberadas {len(tasks_to_remove)} tareas antiguas")
+        gc.collect()  # Forzar garbage collection
+    
+    # Limitar número máximo de tareas en memoria
+    if len(task_logs) > MAX_TASKS_IN_MEMORY:
+        # Ordenar por timestamp y eliminar las más antiguas
+        sorted_tasks = sorted(
+            task_metadata.items(),
+            key=lambda x: x[1].get("start_time", datetime.now())
+        )
+        
+        excess_count = len(task_logs) - MAX_TASKS_IN_MEMORY
+        for task_id, _ in sorted_tasks[:excess_count]:
+            if task_id in task_logs:
+                del task_logs[task_id]
+            if task_id in task_metadata:
+                del task_metadata[task_id]
+        
+        print(f"[CLEANUP] 🗑️ Eliminadas {excess_count} tareas por límite de memoria")
+        gc.collect()
+
 
 async def process_cadastral_task(task_id: str, project_name: str, references: List[str]):
     """
@@ -67,8 +123,12 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
     print(f"{'='*80}\n")
     
     task_logs[task_id] = []
+    task_metadata[task_id] = {"start_time": datetime.now(), "completed": False}
     task_dir = os.path.join(OUTPUTS_ROOT, task_id)
     os.makedirs(task_dir, exist_ok=True)
+    
+    # Limpieza de tareas antiguas para liberar memoria
+    cleanup_old_tasks()
     
     async def log_callback(message, log_type="info"):
         log_entry = {
@@ -77,9 +137,19 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
             "message": f"[{project_name}] {message}",
             "type": log_type
         }
-        task_logs[task_id].append(log_entry)
-        # Debug: Verificar que se está guardando
-        print(f"[LOG_CALLBACK] Task {task_id}: guardado log #{len(task_logs[task_id])} - {message[:50]}")
+        
+        # Limitar logs por tarea para evitar sobrecarga de memoria
+        if task_id in task_logs:
+            task_logs[task_id].append(log_entry)
+            
+            # Si excede el límite, mantener solo los últimos N logs
+            if len(task_logs[task_id]) > MAX_LOGS_PER_TASK:
+                task_logs[task_id] = task_logs[task_id][-MAX_LOGS_PER_TASK:]
+        
+        # Debug reducido: solo cada 10 logs para reducir I/O
+        if len(task_logs.get(task_id, [])) % 10 == 0:
+            print(f"[LOG_CALLBACK] Task {task_id}: {len(task_logs[task_id])} logs - {message[:50]}")
+        
         # También imprimir en stdout para los logs de Easypanel
         print(f"[{log_type.upper()}] {message}")
 
@@ -120,7 +190,16 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
     
     download_url = f"/api/download/{task_id}"
     await log_callback(f"PROCESO COMPLETADO EXITOSAMENTE. URL:{download_url}", "success")
+    
+    # Marcar como completado en metadata
+    if task_id in task_metadata:
+        task_metadata[task_id]["completed"] = True
+        task_metadata[task_id]["end_time"] = datetime.now()
+    
     print(f"[TASK {task_id}] PROCESO FINALIZADO\n")
+    
+    # Forzar garbage collection después de procesar
+    gc.collect()
 
 @app.post("/api/upload")
 async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
