@@ -78,6 +78,8 @@ async def process_cadastral_task(task_id: str, project_name: str, references: Li
             "type": log_type
         }
         task_logs[task_id].append(log_entry)
+        # Debug: Verificar que se está guardando
+        print(f"[LOG_CALLBACK] Task {task_id}: guardado log #{len(task_logs[task_id])} - {message[:50]}")
         # También imprimir en stdout para los logs de Easypanel
         print(f"[{log_type.upper()}] {message}")
 
@@ -155,7 +157,10 @@ async def get_logs(task_id: str):
     """
     Endpoint de polling para obtener logs (reemplaza SSE problemático).
     """
+    print(f"[API /logs/{task_id}] Petición recibida. Task exists: {task_id in task_logs}")
+    
     if task_id not in task_logs:
+        print(f"[API /logs/{task_id}] Task NO encontrado en task_logs")
         return JSONResponse(content={
             "logs": [],
             "completed": False,
@@ -164,6 +169,8 @@ async def get_logs(task_id: str):
     
     logs = task_logs[task_id]
     completed = False
+    
+    print(f"[API /logs/{task_id}] Devolviendo {len(logs)} logs")
     
     # Verificar si el proceso ha terminado
     if logs:
