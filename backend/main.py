@@ -140,6 +140,57 @@ async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = F
     
     return {"task_id": task_id, "project_name": file.filename, "ref_count": len(references)}
 
+@app.post("/api/process-sync")
+async def process_sync(file: UploadFile = File(...)):
+    """
+    Endpoint síncrono simplificado: procesa y devuelve URL de descarga directamente.
+    Sin polling, sin SSE, solo una petición que espera el resultado completo.
+    """
+    try:
+        content = await file.read()
+        references = content.decode("utf-8").splitlines()
+        references = [r.strip() for r in references if r.strip()]
+        
+        task_id = str(uuid.uuid4())
+        
+        print(f"\n{'='*80}")
+        print(f"[PROCESS-SYNC] Inicio para: {file.filename}")
+        print(f"[PROCESS-SYNC] Task ID: {task_id}")
+        print(f"[PROCESS-SYNC] Referencias: {len(references)}")
+        print(f"{'='*80}\n")
+        
+        # Procesar síncronamente (sin background tasks)
+        await process_cadastral_task(task_id, file.filename, references)
+        
+        # Verificar que el ZIP se creó
+        zip_path = os.path.join(OUTPUTS_ROOT, f"resultados_{task_id}.zip")
+        if not os.path.exists(zip_path):
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "ZIP no generado"}
+            )
+        
+        file_size_kb = os.path.getsize(zip_path) / 1024
+        download_url = f"/api/download/{task_id}"
+        
+        print(f"[PROCESS-SYNC] ✅ Completado: {download_url} ({file_size_kb:.1f} KB)\n")
+        
+        return {
+            "success": True,
+            "download_url": download_url,
+            "file_size": f"{file_size_kb:.1f} KB",
+            "task_id": task_id
+        }
+        
+    except Exception as e:
+        print(f"[PROCESS-SYNC] ❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
 @app.get("/api/debug/{task_id}")
 async def debug_task(task_id: str):
     """

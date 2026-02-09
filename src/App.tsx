@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Map, Table, Settings, Activity, FolderOpen } from 'lucide-react';
 import { UI } from './styles/ui';
 import { Sidebar } from './components/Sidebar';
-import { Processor } from './components/Processor';
+import { ProcessorSimple as Processor } from './components/ProcessorSimple';
 
 export default function App() {
     const [activeTab, setActiveTab] = useState('processor');
