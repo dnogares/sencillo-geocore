@@ -140,11 +140,14 @@ async def upload_project(background_tasks: BackgroundTasks, file: UploadFile = F
     
     return {"task_id": task_id, "project_name": file.filename, "ref_count": len(references)}
 
-@app.post("/api/process-sync")
-async def process_sync(file: UploadFile = File(...)):
+# Estado de las tareas (en memoria)
+task_status = {}  # {task_id: {"status": "processing"|"completed"|"error", "download_url": "...", "error": "..."}}
+
+@app.post("/api/process-async")
+async def process_async(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
-    Endpoint síncrono simplificado: procesa y devuelve URL de descarga directamente.
-    Sin polling, sin SSE, solo una petición que espera el resultado completo.
+    Inicia procesamiento en background y devuelve task_id inmediatamente.
+    El cliente debe hacer polling a /api/status/{task_id} para ver el progreso.
     """
     try:
         content = await file.read()
@@ -153,43 +156,73 @@ async def process_sync(file: UploadFile = File(...)):
         
         task_id = str(uuid.uuid4())
         
+        # Inicializar estado
+        task_status[task_id] = {
+            "status": "processing",
+            "filename": file.filename,
+            "ref_count": len(references)
+        }
+        
         print(f"\n{'='*80}")
-        print(f"[PROCESS-SYNC] Inicio para: {file.filename}")
-        print(f"[PROCESS-SYNC] Task ID: {task_id}")
-        print(f"[PROCESS-SYNC] Referencias: {len(references)}")
+        print(f"[ASYNC] Inicio para: {file.filename}")
+        print(f"[ASYNC] Task ID: {task_id}")
+        print(f"[ASYNC] Referencias: {len(references)}")
         print(f"{'='*80}\n")
         
-        # Procesar síncronamente (sin background tasks)
-        await process_cadastral_task(task_id, file.filename, references)
+        # Función wrapper que actualiza el estado al finalizar
+        async def process_and_update_status():
+            try:
+                await process_cadastral_task(task_id, file.filename, references)
+                
+                # Verificar que el ZIP se creó
+                zip_path = os.path.join(OUTPUTS_ROOT, f"resultados_{task_id}.zip")
+                if os.path.exists(zip_path):
+                    file_size_kb = os.path.getsize(zip_path) / 1024
+                    task_status[task_id] = {
+                        "status": "completed",
+                        "download_url": f"/api/download/{task_id}",
+                        "file_size": f"{file_size_kb:.1f} KB"
+                    }
+                    print(f"[ASYNC] ✅ Task {task_id} completado\n")
+                else:
+                    task_status[task_id] = {
+                        "status": "error",
+                        "error": "ZIP no generado"
+                    }
+            except Exception as e:
+                task_status[task_id] = {
+                    "status": "error",
+                    "error": str(e)
+                }
+                print(f"[ASYNC] ❌ Task {task_id} error: {e}\n")
         
-        # Verificar que el ZIP se creó
-        zip_path = os.path.join(OUTPUTS_ROOT, f"resultados_{task_id}.zip")
-        if not os.path.exists(zip_path):
-            return JSONResponse(
-                status_code=500,
-                content={"success": False, "error": "ZIP no generado"}
-            )
-        
-        file_size_kb = os.path.getsize(zip_path) / 1024
-        download_url = f"/api/download/{task_id}"
-        
-        print(f"[PROCESS-SYNC] ✅ Completado: {download_url} ({file_size_kb:.1f} KB)\n")
+        background_tasks.add_task(process_and_update_status)
         
         return {
             "success": True,
-            "download_url": download_url,
-            "file_size": f"{file_size_kb:.1f} KB",
-            "task_id": task_id
+            "task_id": task_id,
+            "message": "Procesamiento iniciado"
         }
         
     except Exception as e:
-        print(f"[PROCESS-SYNC] ❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[ASYNC] ❌ Error al iniciar: {e}")
         return JSONResponse(
             status_code=500,
             content={"success": False, "error": str(e)}
         )
+
+@app.get("/api/status/{task_id}")
+async def get_status(task_id: str):
+    """
+    Devuelve el estado actual de un task (respuesta instantánea, sin timeout).
+    """
+    if task_id not in task_status:
+        return JSONResponse(
+            status_code=404,
+            content={"status": "notfound", "error": "Task no encontrado"}
+        )
+    
+    return task_status[task_id]
 
 @app.get("/api/debug/{task_id}")
 async def debug_task(task_id: str):

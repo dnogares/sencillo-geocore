@@ -55,8 +55,8 @@ export function ProcessorSimple() {
                 const formData = new FormData();
                 formData.append('file', proj.originalFile);
 
-                // Petición síncrona que espera a que termine
-                const response = await fetch('/api/process-sync', {
+                // 1. Iniciar procesamiento en background
+                const response = await fetch('/api/process-async', {
                     method: 'POST',
                     body: formData
                 });
@@ -66,25 +66,61 @@ export function ProcessorSimple() {
                 }
 
                 const data = await response.json();
+                const taskId = data.task_id;
 
-                if (data.success && data.download_url) {
-                    // Marcar como completado
-                    setProjects(prev => prev.map(p =>
-                        p.id === proj.id
-                            ? {
-                                ...p,
-                                status: 'completed',
-                                outputs: [{
-                                    name: p.name.replace('.txt', '_resultados.zip'),
-                                    type: 'zip',
-                                    size: data.file_size || 'Procesado',
-                                    downloadUrl: data.download_url
-                                }]
-                            }
-                            : p
-                    ));
-                } else {
-                    throw new Error(data.error || 'Error desconocido');
+                console.log('[ASYNC] Task iniciado:', taskId);
+
+                // 2. Polling ligero al status (respuesta instantánea, sin timeout)
+                let completed = false;
+                let attempts = 0;
+                const maxAttempts = 180; // 6 minutos máximo (180 * 2s)
+
+                while (!completed && attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2s
+                    attempts++;
+
+                    try {
+                        const statusResponse = await fetch(`/api/status/${taskId}`);
+                        if (!statusResponse.ok) {
+                            console.error('[STATUS] Error HTTP:', statusResponse.status);
+                            continue; // Reintentar
+                        }
+
+                        const statusData = await statusResponse.json();
+                        console.log('[STATUS] Estado:', statusData.status);
+
+                        if (statusData.status === 'completed') {
+                            completed = true;
+
+                            // Marcar como completado
+                            setProjects(prev => prev.map(p =>
+                                p.id === proj.id
+                                    ? {
+                                        ...p,
+                                        status: 'completed',
+                                        outputs: [{
+                                            name: p.name.replace('.txt', '_resultados.zip'),
+                                            type: 'zip',
+                                            size: statusData.file_size || 'Procesado',
+                                            downloadUrl: statusData.download_url
+                                        }]
+                                    }
+                                    : p
+                            ));
+
+                        } else if (statusData.status === 'error') {
+                            throw new Error(statusData.error || 'Error en procesamiento');
+                        }
+                        // Si status === 'processing', seguir esperando
+
+                    } catch (statusError) {
+                        console.error('[STATUS] Error consultando status:', statusError);
+                        // Continuar polling (puede ser error temporal)
+                    }
+                }
+
+                if (!completed) {
+                    throw new Error('Timeout: el procesamiento tardó demasiado');
                 }
 
             } catch (error) {
